@@ -46,6 +46,12 @@ st.write("Variables utilizadas:", FEATURES)
 # =====================================================
 # 4. FORMAS DE GENERAR PREDICCIONES
 # =====================================================
+# =====================================================
+# HISTORIAL DE PREDICCIONES
+# =====================================================
+
+if "historial" not in st.session_state:
+    st.session_state.historial = []
 
 tab1, tab2 = st.tabs([
     "Ingreso manual",
@@ -87,12 +93,12 @@ with tab1:
         )
 
 # =====================================================
-# 6. CARGAR NUEVOS INDICADORES DESDE CSV
+# 6. CARGAR Y PROCESAR NUEVOS INDICADORES
 # =====================================================
 
 with tab2:
 
-    st.subheader("Cargar nuevos indicadores económicos")
+    st.subheader("Actualización automática de estimaciones")
 
     archivo = st.file_uploader(
         "Seleccione un archivo CSV",
@@ -101,12 +107,13 @@ with tab2:
 
     if archivo is not None:
 
+        # Leemos los datos nuevos
         nuevos_datos = pd.read_csv(archivo)
 
         st.write("Información recibida:")
         st.dataframe(nuevos_datos)
 
-        # Verificamos las columnas necesarias
+        # Comprobamos las variables del modelo
         faltantes = [
             variable
             for variable in FEATURES
@@ -116,29 +123,78 @@ with tab2:
         if faltantes:
 
             st.error(
-                "Faltan las siguientes variables: "
-                + ", ".join(faltantes)
+                "Faltan variables: " + ", ".join(faltantes)
             )
 
         else:
 
-            if st.button("Predecir con CSV"):
+            # Seleccionamos los predictores
+            X_nuevo = nuevos_datos[FEATURES].copy()
 
-                X_nuevo = nuevos_datos[FEATURES]
+            # Verificamos que sean numéricos
+            X_nuevo = X_nuevo.apply(
+                pd.to_numeric, errors="coerce"
+            )
 
-                predicciones = modelo.predict(X_nuevo)
+            # El pipeline genera la predicción
+            predicciones = modelo.predict(X_nuevo)
 
-                resultados = nuevos_datos.copy()
+            # Construimos la tabla de resultados
+            resultados = nuevos_datos.copy()
+            resultados["PIB_estimado"] = predicciones
 
-                resultados["PIB_estimado"] = predicciones
+            st.success("Predicciones generadas automáticamente")
 
-                st.subheader("Resultados de la estimación")
+            st.dataframe(resultados)
 
-                st.dataframe(resultados)
+            # Guardamos el resultado en el historial
+            if st.button("Registrar estimaciones"):
 
-                st.download_button(
-                    "Descargar resultados",
-                    data=resultados.to_csv(index=False),
-                    file_name="estimaciones_pib.csv",
-                    mime="text/csv"
+                registro = pd.DataFrame({
+                    "trimestre": nuevos_datos["trimestre"],
+                    "escenario": (
+                        nuevos_datos["escenario"]
+                        if "escenario" in nuevos_datos.columns
+                        else "Sin escenario"
+                    ),
+                    "PIB_estimado": predicciones
+                })
+
+                st.session_state.historial.extend(
+                    registro.to_dict("records")
                 )
+
+                st.success("Estimaciones registradas")
+
+            # Descargamos las predicciones actuales
+            st.download_button(
+                "Descargar predicciones",
+                data=resultados.to_csv(index=False),
+                file_name="predicciones_pib.csv",
+                mime="text/csv"
+            )
+
+    # =================================================
+    # 7. HISTORIAL DE PREDICCIONES
+    # =================================================
+
+    st.subheader("Historial de estimaciones")
+
+    if st.session_state.historial:
+
+        historial = pd.DataFrame(
+            st.session_state.historial
+        )
+
+        st.dataframe(historial)
+
+        st.download_button(
+            "Descargar historial",
+            data=historial.to_csv(index=False),
+            file_name="historial_predicciones.csv",
+            mime="text/csv"
+        )
+
+    else:
+
+        st.info("Todavía no existen predicciones registradas.")
